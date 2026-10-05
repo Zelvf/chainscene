@@ -58,3 +58,21 @@ export type HistoryItem = {
   blockTime: number | null;
   failed: boolean;
 };
+
+export type NextHop = {
+  fromAccount: string;
+  toAccount: string;
+  mint: string | null;
+  raw: string;
+  decimals: number | null;
+  signature: string;
+  slot: number;
+  blockTime: number | null;
+};
+
+export type TraceResult = {
+  hops: NextHop[];
+  accountsChecked: number;
+  transactionsChecked: number;
+  note: string;
+};

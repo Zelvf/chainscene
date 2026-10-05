@@ -1,6 +1,6 @@
 import "server-only";
 import JSONbig from "json-bigint";
-import type { BalanceChange, Evidence, HistoryItem, Investigation, Network, Transfer } from "./types";
+import type { BalanceChange, Evidence, HistoryItem, Investigation, Network, TraceResult, Transfer } from "./types";
 
 const DEFAULT_ENDPOINTS: Record<Network, string> = {
   mainnet: "https://api.mainnet-beta.solana.com",
@@ -166,7 +166,39 @@ export async function investigate(signature: string, network: Network): Promise<
   };
 }
 
-export async function getAddressHistory(address: string, network: Network): Promise<HistoryItem[]> {
-  const items = await rpc<{ signature: string; slot: number; blockTime: number | null; err: unknown }[]>(network, "getSignaturesForAddress", [address, { commitment: "finalized", limit: 12 }]);
+export async function getAddressHistory(address: string, network: Network, limit = 12): Promise<HistoryItem[]> {
+  const items = await rpc<{ signature: string; slot: number; blockTime: number | null; err: unknown }[]>(network, "getSignaturesForAddress", [address, { commitment: "finalized", limit: Math.min(limit, 20) }]);
   return items.map((item) => ({ signature: item.signature, slot: item.slot, blockTime: item.blockTime, failed: item.err !== null }));
+}
+
+export async function traceNextHops(signature: string, network: Network): Promise<TraceResult> {
+  const root = await investigate(signature, network);
+  const targets = [...new Map(root.transfers.map((transfer) => [transfer.destination, { account: transfer.destination, mint: transfer.mint }])).values()].slice(0, 4);
+  const historyResults = await Promise.allSettled(targets.map((target) => getAddressHistory(target.account, network, 20)));
+  const candidates = new Map<string, HistoryItem>();
+  historyResults.forEach((outcome) => {
+    if (outcome.status !== "fulfilled") return;
+    outcome.value.filter((item) => !item.failed && item.slot > root.slot &&
+      (root.blockTime === null || item.blockTime === null || item.blockTime <= root.blockTime + 7200))
+      .forEach((item) => candidates.set(item.signature, item));
+  });
+  const nearby = [...candidates.values()].sort((a, b) => a.slot - b.slot).slice(0, 6);
+  const transactionResults = await Promise.allSettled(nearby.map((item) => investigate(item.signature, network)));
+  const hops: TraceResult["hops"] = [];
+  transactionResults.forEach((outcome) => {
+    if (outcome.status !== "fulfilled" || !outcome.value.success) return;
+    const tx = outcome.value;
+    tx.transfers.forEach((transfer) => {
+      const target = targets.find((item) => item.account === transfer.source && item.mint === transfer.mint);
+      if (!target) return;
+      hops.push({ fromAccount: transfer.source, toAccount: transfer.destination, mint: transfer.mint,
+        raw: transfer.raw, decimals: transfer.decimals, signature: tx.signature, slot: tx.slot, blockTime: tx.blockTime });
+    });
+  });
+  return {
+    hops: hops.slice(0, 12),
+    accountsChecked: historyResults.filter((item) => item.status === "fulfilled").length,
+    transactionsChecked: transactionResults.filter((item) => item.status === "fulfilled").length,
+    note: "This is a bounded scan of the latest 20 signatures for up to four recipient accounts, followed by at most six nearby transactions within two hours. It may miss activity. Later transfers from an account do not prove the same deposited units moved onward.",
+  };
 }

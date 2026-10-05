@@ -19,6 +19,7 @@ To enable AI explanations, enter your OpenAI API key in **Enable AI narrative** 
 - SOL and token balance changes are calculated from the transaction's pre/post balances. Large integer values are parsed without floating-point precision loss.
 - Transfer edges come only from successful, parsed System Program and SPL Token transfer instructions, including inner instructions. Unknown instructions are counted and disclosed.
 - Clicking an account requests its latest 12 finalized signatures with `getSignaturesForAddress`. This is recent account activity, **not** a proven continuation of the investigated transfer.
+- **Scan next hops** checks up to four recipient accounts, their latest 20 signatures each, and up to six nearby transactions. It reports later outgoing transfers from the same account, with a two-hour window and explicit coverage limits. Fungible units cannot be tracked individually.
 - An optional model creates a narrative from the extracted facts. Claims with missing or unknown evidence IDs are discarded. ID matching does not prove the model interpreted the evidence correctly, so the source records remain inspectable.
 
 The app does not establish identity, intent, fraud, or a complete fund trail from a single signature. Public RPC endpoints may rate limit requests and may have limited historical coverage.
